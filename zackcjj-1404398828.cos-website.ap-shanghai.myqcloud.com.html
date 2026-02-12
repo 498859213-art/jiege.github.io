@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户在线状态管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 10px;
+            max-width: 600px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .block {
+            width: 100%;
+            aspect-ratio: 1;
+            background-color: #ccc;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            padding: 10px;
+            text-align: center;
+        }
+
+        .block:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+
+        .block.active {
+            background-color: #ff4444;
+            color: white;
+        }
+
+        .block-content {
+            font-size: 14px;
+            font-weight: bold;
+            word-break: break-word;
+            max-height: 80%;
+            overflow: hidden;
+        }
+
+        .edit-icon {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            font-size: 12px;
+            color: #666;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .block:hover .edit-icon {
+            opacity: 1;
+        }
+
+        .block.active .edit-icon {
+            color: white;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 400px;
+            border-radius: 8px;
+        }
+
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: black;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .status-message {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        .status-message.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .info-message {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <h1>用户在线状态管理</h1>
+    
+    <div class="info-message">
+        提示：此工具使用浏览器本地存储保存数据，其他用户需要手动刷新页面才能看到最新状态。
+    </div>
+    
+    <div class="grid-container" id="gridContainer"></div>
+    
+    <div class="status-message" id="statusMessage"></div>
+    
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>编辑方块内容</h3>
+            <input type="text" id="blockText" placeholder="请输入内容">
+            <button id="saveBtn">保存</button>
+        </div>
+    </div>
+
+    <script>
+        const BLOCK_COUNT = 15;
+        const MAX_ACTIVE_BLOCKS = 3;
+        let activeBlocks = 0;
+        let currentEditBlock = null;
+        let blocksData = [];
+        let lastUpdateTime = 0;
+        
+        const gridContainer = document.getElementById('gridContainer');
+        const editModal = document.getElementById('editModal');
+        const blockText = document.getElementById('blockText');
+        const saveBtn = document.getElementById('saveBtn');
+        const closeBtn = document.querySelector('.close');
+        const statusMessage = document.getElementById('statusMessage');
+        
+        // 创建方块
+        function createBlocks() {
+            for (let i = 0; i < BLOCK_COUNT; i++) {
+                const block = document.createElement('div');
+                block.className = 'block';
+                block.dataset.index = i;
+                
+                const editIcon = document.createElement('span');
+                editIcon.className = 'edit-icon';
+                editIcon.textContent = '✏️';
+                
+                const content = document.createElement('div');
+                content.className = 'block-content';
+                content.textContent = `方块 ${i + 1}`;
+                
+                block.appendChild(editIcon);
+                block.appendChild(content);
+                
+                // 点击编辑图标
+                editIcon.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openEditModal(block);
+                });
+                
+                // 点击方块切换状态
+                block.addEventListener('click', () => {
+                    toggleBlockStatus(block);
+                });
+                
+                gridContainer.appendChild(block);
+            }
+        }
+        
+        // 从本地存储加载数据
+        function loadDataFromLocalStorage() {
+            const savedData = localStorage.getItem('blocksData');
+            if (savedData) {
+                blocksData = JSON.parse(savedData);
+            } else {
+                // 初始化默认数据
+                blocksData = [];
+                for (let i = 0; i < BLOCK_COUNT; i++) {
+                    blocksData.push({
+                        content: `方块 ${i + 1}`,
+                        active: false
+                    });
+                }
+                saveDataToLocalStorage();
+            }
+            updateBlocksUI();
+        }
+        
+        // 保存数据到本地存储
+        function saveDataToLocalStorage() {
+            localStorage.setItem('blocksData', JSON.stringify(blocksData));
+        }
+        
+        // 更新方块UI
+        function updateBlocksUI() {
+            const blocks = document.querySelectorAll('.block');
+            activeBlocks = 0;
+            
+            blocks.forEach((block, index) => {
+                if (blocksData[index]) {
+                    const content = block.querySelector('.block-content');
+                    content.textContent = blocksData[index].content;
+                    
+                    if (blocksData[index].active) {
+                        block.classList.add('active');
+                        activeBlocks++;
+                    } else {
+                        block.classList.remove('active');
+                    }
+                }
+            });
+        }
+        
+        // 打开编辑模态框
+        function openEditModal(block) {
+            currentEditBlock = block;
+            const content = block.querySelector('.block-content');
+            blockText.value = content.textContent;
+            editModal.style.display = 'block';
+        }
+        
+        // 关闭编辑模态框
+        function closeEditModal() {
+            editModal.style.display = 'none';
+            currentEditBlock = null;
+        }
+        
+        // 保存方块内容
+        function saveBlockContent() {
+            if (currentEditBlock) {
+                const index = parseInt(currentEditBlock.dataset.index);
+                const newContent = blockText.value || `方块 ${index + 1}`;
+                
+                // 更新本地数据
+                if (!blocksData[index]) {
+                    blocksData[index] = { content: newContent, active: false };
+                } else {
+                    blocksData[index].content = newContent;
+                }
+                
+                // 保存到本地存储
+                saveDataToLocalStorage();
+                // 更新UI
+                updateBlocksUI();
+                closeEditModal();
+                showMessage('内容已更新，其他用户需手动刷新页面', 'success');
+            }
+        }
+        
+        // 切换方块状态
+        function toggleBlockStatus(block) {
+            const index = parseInt(block.dataset.index);
+            const isActive = block.classList.contains('active');
+            
+            if (isActive) {
+                // 取消激活
+                if (blocksData[index]) {
+                    blocksData[index].active = false;
+                    
+                    // 保存到本地存储
+                    saveDataToLocalStorage();
+                    // 更新UI
+                    updateBlocksUI();
+                    showMessage('方块已取消激活，其他用户需手动刷新页面', 'success');
+                }
+            } else {
+                // 检查当前激活数量
+                const activeCount = blocksData.filter(block => block && block.active).length;
+                if (activeCount >= MAX_ACTIVE_BLOCKS) {
+                    showMessage('最多只能激活3个方块', 'error');
+                    return;
+                }
+                
+                // 激活方块
+                if (!blocksData[index]) {
+                    blocksData[index] = { 
+                        content: block.querySelector('.block-content').textContent, 
+                        active: true 
+                    };
+                } else {
+                    blocksData[index].active = true;
+                }
+                
+                // 保存到本地存储
+                saveDataToLocalStorage();
+                // 更新UI
+                updateBlocksUI();
+                showMessage('方块已激活，其他用户需手动刷新页面', 'success');
+            }
+        }
+        
+        // 显示消息
+        function showMessage(text, type) {
+            statusMessage.textContent = text;
+            statusMessage.className = `status-message ${type}`;
+            
+            setTimeout(() => {
+                statusMessage.textContent = '';
+                statusMessage.className = 'status-message';
+            }, 3000);
+        }
+        
+        // 初始化
+        function init() {
+            createBlocks();
+            loadDataFromLocalStorage();
+        }
+        
+        // 事件监听
+        saveBtn.addEventListener('click', saveBlockContent);
+        closeBtn.addEventListener('click', closeEditModal);
+        
+        // 点击模态框外部关闭
+        window.addEventListener('click', (e) => {
+            if (e.target === editModal) {
+                closeEditModal();
+            }
+        });
+        
+        // 按Enter键保存
+        blockText.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                saveBlockContent();
+            }
+        });
+        
+        // 启动应用
+        init();
+    </script>
+</body>
+</html>
